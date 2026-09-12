@@ -105,6 +105,7 @@ const BookReaderApp: React.FC = () => {
     setGenerationPaceMs,
     clonedVoices,
     addClonedVoice,
+    removeClonedVoice,
     batchJob,
     resumableJob,
     startBatchExportJob,
@@ -428,7 +429,12 @@ const BookReaderApp: React.FC = () => {
                 disabled={isUploading || isLocked}
                 style={{ fontSize: 14 }}
               />
-              <VoiceCloneUploader onVoiceCloned={addClonedVoice} disabled={isLocked} />
+              <VoiceCloneUploader
+                onVoiceCloned={addClonedVoice}
+                clonedVoices={clonedVoices}
+                onVoiceRemoved={removeClonedVoice}
+                disabled={isLocked}
+              />
               {isUploading && <TTSSpinner message="Đang đọc file..." />}
 
               {pages.length > 0 && (

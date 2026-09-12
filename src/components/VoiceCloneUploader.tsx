@@ -2,13 +2,26 @@ import React, { useState } from 'react';
 import { API_URL } from '../config';
 import { useToast } from './Toast';
 
+interface ClonedVoiceInfo {
+  id: string;
+  name: string;
+}
+
 interface VoiceCloneUploaderProps {
   onVoiceCloned: (voiceId: string, voiceName: string) => void;
+  clonedVoices?: ClonedVoiceInfo[];
+  onVoiceRemoved?: (voiceId: string) => Promise<boolean> | void;
   disabled?: boolean;
 }
 
-const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({ onVoiceCloned, disabled = false }) => {
+const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({
+  onVoiceCloned,
+  clonedVoices = [],
+  onVoiceRemoved,
+  disabled = false,
+}) => {
   const [isUploading, setIsUploading] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const { showToast } = useToast();
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,6 +66,19 @@ const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({ onVoiceCloned, 
     }
   };
 
+  const handleRemove = async (voiceId: string, displayName: string) => {
+    if (!onVoiceRemoved) return;
+    if (!window.confirm(`Xoá giọng "${displayName}"? Không thể hoàn tác — phải clone lại từ đầu nếu muốn dùng lại.`)) {
+      return;
+    }
+    setRemovingId(voiceId);
+    try {
+      await onVoiceRemoved(voiceId);
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
   return (
     <div style={{
       padding: 16,
@@ -72,6 +98,54 @@ const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({ onVoiceCloned, 
         disabled={isUploading || disabled}
       />
       {isUploading && <p style={{ margin: '8px 0 0', color: '#fd7e14' }}>⏳ Đang xử lý...</p>}
+
+      {clonedVoices.length > 0 && (
+        <div style={{ marginTop: 14, textAlign: 'left' }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: '#495057', margin: '0 0 6px' }}>
+            Giọng đã clone ({clonedVoices.length}):
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {clonedVoices.map((v) => (
+              <div
+                key={v.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  padding: '6px 10px',
+                  background: '#fff',
+                  border: '1px solid #dee2e6',
+                  borderRadius: 6,
+                  fontSize: 13,
+                }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {v.name}
+                </span>
+                <button
+                  onClick={() => handleRemove(v.id, v.name)}
+                  disabled={disabled || removingId === v.id}
+                  title="Xoá giọng đã clone này (xoá cả trên server)"
+                  style={{
+                    flexShrink: 0,
+                    padding: '3px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    border: '1px solid #dc3545',
+                    borderRadius: 4,
+                    background: '#fff',
+                    color: disabled || removingId === v.id ? '#adb5bd' : '#dc3545',
+                    cursor: disabled || removingId === v.id ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {removingId === v.id ? '⏳' : '🗑️ Xoá'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

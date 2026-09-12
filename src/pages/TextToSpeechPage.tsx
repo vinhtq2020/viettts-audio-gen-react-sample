@@ -151,6 +151,28 @@ export default function TextToSpeechPage() {
     setVoice(voiceId);
   };
 
+  const handleVoiceRemoved = async (voiceId: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_URL}/clone-voice/${encodeURIComponent(voiceId)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      showToast(`Không xoá được giọng: ${err.message || err}`, "error");
+      return false;
+    }
+
+    setClonedVoices(prev => prev.filter(v => v.id !== voiceId));
+    if (voice === voiceId) {
+      setVoice(voices[0]?.id || "Trúc Ly");
+    }
+    showToast("Đã xoá giọng đã clone.", "success");
+    return true;
+  };
+
   return (
     <div style={{ maxWidth: 800, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
       <h1>📝 Text to Speech</h1>
@@ -159,7 +181,11 @@ export default function TextToSpeechPage() {
       </p>
 
       {/* 👇 Voice Clone Uploader */}
-      <VoiceCloneUploader onVoiceCloned={handleVoiceCloned} />
+      <VoiceCloneUploader
+        onVoiceCloned={handleVoiceCloned}
+        clonedVoices={clonedVoices}
+        onVoiceRemoved={handleVoiceRemoved}
+      />
 
       {/* Voice Selector */}
       <div style={{ marginTop: 16, marginBottom: 16 }}>

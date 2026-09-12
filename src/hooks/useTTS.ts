@@ -258,6 +258,35 @@ export function useTTS() {
     setVoice(voiceId);
   }, []);
 
+  // Xoá 1 giọng đã clone: gọi API xoá trên server (file audio + metadata),
+  // rồi cập nhật lại danh sách + tự chuyển sang giọng khác nếu đang chọn
+  // đúng giọng vừa xoá (tránh còn "chọn" 1 giọng không còn tồn tại nữa).
+  const removeClonedVoice = useCallback(
+    async (voiceId: string): Promise<boolean> => {
+      try {
+        const res = await fetch(`${API_URL}/clone-voice/${encodeURIComponent(voiceId)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+      } catch (err: any) {
+        showToast(`Không xoá được giọng: ${err.message || err}`, "error");
+        return false;
+      }
+
+      setClonedVoices((prev) => prev.filter((v) => v.id !== voiceId));
+      if (voice === voiceId) {
+        // Đang chọn đúng giọng vừa xoá -> chuyển về giọng có sẵn đầu tiên (hoặc mặc định cũ)
+        setVoice(voices.find((v) => v.id !== voiceId)?.id || "Trúc Ly");
+      }
+      showToast("Đã xoá giọng đã clone.", "success");
+      return true;
+    },
+    [voice, voices, showToast],
+  );
+
   const getPageCacheKey = useCallback(
     (page: PageState) => buildCacheKey(voice, style, page.pageNum, `${AUDIO_PIPELINE_VERSION}::${page.text}`),
     [voice, style],
@@ -1247,6 +1276,7 @@ export function useTTS() {
   return {
     clonedVoices,
     addClonedVoice,
+    removeClonedVoice,
     batchJob,
     resumableJob,
     startBatchExportJob,
