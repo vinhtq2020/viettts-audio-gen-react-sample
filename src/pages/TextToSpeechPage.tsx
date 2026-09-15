@@ -182,6 +182,7 @@ export default function TextToSpeechPage() {
 
       {/* 👇 Voice Clone Uploader */}
       <VoiceCloneUploader
+        engine="vieneu"
         onVoiceCloned={handleVoiceCloned}
         clonedVoices={clonedVoices}
         onVoiceRemoved={handleVoiceRemoved}

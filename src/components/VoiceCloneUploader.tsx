@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { API_URL } from '../config';
 import { useToast } from './Toast';
+import type { TTSEngine } from '../hooks/useTTS';
 
 interface ClonedVoiceInfo {
   id: string;
@@ -8,10 +9,11 @@ interface ClonedVoiceInfo {
 }
 
 interface VoiceCloneUploaderProps {
-  onVoiceCloned: (voiceId: string, voiceName: string) => void;
+  onVoiceCloned: (voiceId: string, voiceName: string, engine: TTSEngine) => void;
   clonedVoices?: ClonedVoiceInfo[];
   onVoiceRemoved?: (voiceId: string) => Promise<boolean> | void;
   disabled?: boolean;
+  engine: TTSEngine;
 }
 
 const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({
@@ -19,6 +21,7 @@ const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({
   clonedVoices = [],
   onVoiceRemoved,
   disabled = false,
+  engine
 }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -28,8 +31,12 @@ const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('audio/')) {
+    if (engine === 'vieneu' && !file.type.startsWith('audio/')) {
       showToast('Vui lòng chọn file audio.', 'warning');
+      return;
+    }
+    if (engine === 'zerotts' && !file.name.toLowerCase().endsWith('.npz')) {
+      showToast('Vui lòng chọn file .npz.', 'warning');
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
@@ -43,9 +50,10 @@ const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({
       const voiceId = `cloned_${Date.now()}`;
       formData.append('voice_id', voiceId);
       formData.append('name', file.name.replace(/\.[^/.]+$/, ''));
-      formData.append('audio_file', file);
+      const endpoint = engine === 'vieneu' ? 'clone-voice' : 'zerotts-voice';
+      formData.append(engine === 'vieneu' ? 'audio_file' : 'npz_file', file);
 
-      const res = await fetch(`${API_URL}/clone-voice`, {
+      const res = await fetch(`${API_URL}/${endpoint}`, {
         method: 'POST',
         body: formData,
       });
@@ -56,7 +64,7 @@ const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({
       }
 
       const data = await res.json();
-      onVoiceCloned(data.voice_id, data.name);
+      onVoiceCloned(data.voice_id, data.name, engine);
       showToast(`Đã clone giọng: ${data.name}`, "success");
     } catch (err: any) {
       showToast('Lỗi: ' + (err.message || 'Clone failed'), 'error');
@@ -87,13 +95,17 @@ const VoiceCloneUploader: React.FC<VoiceCloneUploaderProps> = ({
       textAlign: 'center',
       background: '#f8f9fa',
     }}>
-      <p style={{ margin: '0 0 8px', fontWeight: 600 }}>🎙️ Clone giọng nói</p>
+      <p style={{ margin: '0 0 8px', fontWeight: 600 }}>
+        {engine === 'vieneu' ? '🎙️ Clone giọng nói' : '🎙️ Thêm giọng ZeroTTS'}
+      </p>
       <p style={{ fontSize: 12, color: '#6c757d', margin: '0 0 12px' }}>
-        Upload WAV/MP3 3-30 giây, giọng rõ, không nhiễu
+        {engine === 'vieneu'
+          ? 'Upload WAV/MP3 3-30 giây, giọng rõ, không nhiễu'
+          : <>Upload file .npz giọng ZeroTTS từ <a href="https://platform.zeroweight.ai/audio" target="_blank" rel="noreferrer">platform.zeroweight.ai/audio</a></>}
       </p>
       <input
         type="file"
-        accept="audio/wav,audio/mp3,audio/mpeg,audio/x-wav"
+        accept={engine === 'vieneu' ? 'audio/wav,audio/mp3,audio/mpeg,audio/x-wav' : '.npz,application/octet-stream'}
         onChange={handleFileChange}
         disabled={isUploading || disabled}
       />

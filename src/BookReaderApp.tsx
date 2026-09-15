@@ -80,6 +80,8 @@ const BookReaderApp: React.FC = () => {
     setSpeed,
     voice,
     setVoice,
+    engine,
+    setEngine,
     voices,
     pages,
     allPages,
@@ -429,9 +431,26 @@ const BookReaderApp: React.FC = () => {
                 disabled={isUploading || isLocked}
                 style={{ fontSize: 14 }}
               />
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <label title="VieNeu chạy GPU; ZeroTTS chạy CPU và không cần GPU.">
+                  🧠 Model TTS:
+                </label>
+                <select
+                  value={engine}
+                  onChange={(e) => setEngine(e.target.value as "vieneu" | "zerotts")}
+                  disabled={isLocked}
+                  style={{ padding: "4px 8px", borderRadius: 4, minWidth: 170 }}
+                >
+                  <option value="vieneu">VieNeu (GPU, có clone giọng)</option>
+                  <option value="zerotts">ZeroTTS (CPU)</option>
+                </select>
+              </div>
+
               <VoiceCloneUploader
+                engine={engine}
                 onVoiceCloned={addClonedVoice}
-                clonedVoices={clonedVoices}
+                clonedVoices={clonedVoices.filter((v) => v.engine === engine)}
                 onVoiceRemoved={removeClonedVoice}
                 disabled={isLocked}
               />
@@ -440,10 +459,10 @@ const BookReaderApp: React.FC = () => {
               {pages.length > 0 && (
                 <>
                   <VoiceSelector
-                    voices={voices}
+                    voices={voices.filter((v) => v.engine === engine)}
                     voice={voice}
                     onChange={setVoice}
-                    clonedVoices={clonedVoices}
+                    clonedVoices={clonedVoices.filter((v) => v.engine === engine)}
                     disabled={isLocked}
                   />
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -451,7 +470,8 @@ const BookReaderApp: React.FC = () => {
                     <select
                       value={style}
                       onChange={(e) => setStyle(e.target.value)}
-                      disabled={isLocked}
+                      disabled={isLocked || engine === "zerotts"}
+                      title={engine === "zerotts" ? "ZeroTTS chưa hỗ trợ chọn phong cách đọc" : undefined}
                       style={{ padding: "4px 8px", borderRadius: 4, minWidth: 140 }}
                     >
                       {styles.map((s) => (

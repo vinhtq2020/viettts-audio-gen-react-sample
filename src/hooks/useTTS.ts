@@ -90,12 +90,17 @@ const RESIDENT_AUDIO_CAP = 30;
 const DEFAULT_GENERATION_PACE_MS = 250;
 const LAST_VOICE_KEY = "vieneu_last_voice";
 const LAST_STYLE_KEY = "vieneu_last_style";
+const LAST_ENGINE_KEY = "vieneu_last_engine";
 
 export interface Voice {
   id: string;
   name: string;
   type?: 'preset' | 'cloned';
+  /** Model TTS phục vụ giọng này — quyết định giọng nào hiện ra khi chọn engine tương ứng. */
+  engine?: 'vieneu' | 'zerotts';
 }
+
+export type TTSEngine = 'vieneu' | 'zerotts';
 
 export interface PageState {
   pageNum: number;
@@ -171,6 +176,31 @@ export function useTTS() {
   }, []);
   const [voices, setVoices] = useState<Voice[]>([]);
 
+  // Engine đang chọn (VieNeu/GPU hoặc ZeroTTS/CPU). Khi đổi engine, tự chuyển
+  // sang 1 giọng hợp lệ của engine đó (giọng cũ có thể không tồn tại ở engine mới).
+  const [engine, setEngineState] = useState<TTSEngine>(
+    () => (localStorage.getItem(LAST_ENGINE_KEY) as TTSEngine) || "vieneu",
+  );
+  const setEngine = useCallback(
+    (e: TTSEngine) => {
+      setEngineState(e);
+      try {
+        localStorage.setItem(LAST_ENGINE_KEY, e);
+      } catch {
+        // ignore
+      }
+      setVoices((currentVoices) => {
+        const stillValid = currentVoices.some((v) => v.engine === e && v.id === voice);
+        if (!stillValid) {
+          const firstOfEngine = currentVoices.find((v) => v.engine === e);
+          if (firstOfEngine) setVoice(firstOfEngine.id);
+        }
+        return currentVoices;
+      });
+    },
+    [voice],
+  );
+
   const [pages, setPages] = useState<PageState[]>([]);
   const [allPages, setAllPages] = useState<PageState[]>([]);
   const [loadedBatch, setLoadedBatch] = useState(0);
@@ -202,7 +232,7 @@ export function useTTS() {
       .then((est) => {
         if (isMountedRef.current) setStorageEstimate(est);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -233,9 +263,20 @@ export function useTTS() {
     fetch(`${API_URL}/voices`)
       .then((r) => r.json())
       .then((data: Voice[]) => {
-        setVoices(data);
-        if (data.length > 0 && !data.find((v) => v.id === voice)) {
-          setVoice(data[0].id);
+        // 👇 Tách theo type ngay từ response đầu tiên — trước đây tất cả (kể cả
+        // giọng đã clone từ phiên trước) bị dồn chung vào `voices`, khiến giọng
+        // đã clone "biến mất" khỏi mục riêng cho tới khi clone thêm 1 giọng mới
+        // trong phiên hiện tại (lúc đó mới gọi addClonedVoice để thêm vào state).
+        const presets = data.filter((v) => v.type !== "cloned");
+        const clones = data.filter((v) => v.type === "cloned");
+        setVoices(presets);
+        setClonedVoices(clones);
+
+        const allVoices = [...presets, ...clones];
+        const stillValid = allVoices.some((v) => v.id === voice && v.engine === engine);
+        if (!stillValid) {
+          const fallback = allVoices.find((v) => v.engine === engine) || allVoices[0];
+          if (fallback) setVoice(fallback.id);
         }
       })
       .catch(console.error);
@@ -250,10 +291,10 @@ export function useTTS() {
     refreshStorageEstimate();
   }, [refreshStorageEstimate]);
 
-  const addClonedVoice = useCallback((voiceId: string, name: string) => {
+  const addClonedVoice = useCallback((voiceId: string, name: string, voiceEngine: TTSEngine = "vieneu") => {
     setClonedVoices(prev => {
       if (prev.find(v => v.id === voiceId)) return prev;
-      return [...prev, { id: voiceId, name: `🎙️ ${name}`, type: 'cloned' }];
+      return [...prev, { id: voiceId, name: `🎙️ ${name}`, type: 'cloned', engine: voiceEngine }];
     });
     setVoice(voiceId);
   }, []);
@@ -264,13 +305,30 @@ export function useTTS() {
   const removeClonedVoice = useCallback(
     async (voiceId: string): Promise<boolean> => {
       try {
-        const res = await fetch(`${API_URL}/clone-voice/${encodeURIComponent(voiceId)}`, {
-          method: "DELETE",
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          throw new Error(err.error || `HTTP ${res.status}`);
+
+        const voice = [...voices, ...clonedVoices].find((v) => v.id === voiceId);
+        if (!voice) {
+          throw new Error("Giọng không tồn tại trong danh sách");
         }
+        if (voice.engine == "vieneu") {
+          const res = await fetch(`${API_URL}/clone-voice/${encodeURIComponent(voiceId)}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            throw new Error(err.error || `HTTP ${res.status}`);
+          }
+        } else if (voice.engine == "zerotts") {
+          const res = await fetch(`${API_URL}/zerotts-voice/${encodeURIComponent(voiceId)}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            throw new Error(err.error || `HTTP ${res.status}`);
+          }
+        }
+
+
       } catch (err: any) {
         showToast(`Không xoá được giọng: ${err.message || err}`, "error");
         return false;
@@ -288,8 +346,8 @@ export function useTTS() {
   );
 
   const getPageCacheKey = useCallback(
-    (page: PageState) => buildCacheKey(voice, style, page.pageNum, `${AUDIO_PIPELINE_VERSION}::${page.text}`),
-    [voice, style],
+    (page: PageState) => buildCacheKey(voice, style, page.pageNum, `${AUDIO_PIPELINE_VERSION}::${engine}::${page.text}`),
+    [voice, style, engine],
   );
 
   // 👇 Thử phục hồi audio đã tạo trước đó từ IndexedDB cho một batch trang,
@@ -346,7 +404,7 @@ export function useTTS() {
           const res = await fetch(`${API_URL}/tts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, voice: voice || undefined, style }),
+            body: JSON.stringify({ text, voice: voice || undefined, style, engine }),
             signal: controller.signal,
           });
           if (!res.ok) {
@@ -375,7 +433,7 @@ export function useTTS() {
       }
       throw new Error("All retries failed");
     },
-    [voice, style],
+    [voice, style, engine],
   );
 
   const updatePageState = useCallback((pageNum: number, updater: (p: PageState) => PageState) => {
@@ -1138,7 +1196,7 @@ export function useTTS() {
           setBatchJob((s) => (s ? { ...s, nextPage: cursor } : s));
         }
 
-        await deleteBatchJob(job.documentId).catch(() => {});
+        await deleteBatchJob(job.documentId).catch(() => { });
         setBatchJob((s) => (s ? { ...s, status: "completed", nextPage: job.endPage + 1 } : s));
         setResumableJob(null);
         showToast(`🎉 Đã hoàn tất tạo & export audio trang ${job.startPage}-${job.endPage} (${job.useFallbackDownload ? "đã tải về Downloads" : "đã lưu vào thư mục đã chọn"}).`, "success");
@@ -1211,7 +1269,7 @@ export function useTTS() {
   /** Huỷ bỏ hoàn toàn gợi ý tiếp tục (không xoá audio đã tạo, chỉ xoá bản ghi tiến trình). */
   const dismissResumableJob = useCallback(async () => {
     if (resumableJob) {
-      await deleteBatchJob(resumableJob.documentId).catch(() => {});
+      await deleteBatchJob(resumableJob.documentId).catch(() => { });
     }
     setResumableJob(null);
   }, [resumableJob]);
@@ -1269,7 +1327,7 @@ export function useTTS() {
             setResumableJob(job);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [hydrateBatchFromCache]);
 
@@ -1294,6 +1352,8 @@ export function useTTS() {
     setSpeed,
     voice,
     setVoice,
+    engine,
+    setEngine,
     voices,
     pages,
     allPages,
